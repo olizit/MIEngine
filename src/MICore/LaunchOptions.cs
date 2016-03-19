@@ -55,7 +55,7 @@ namespace MICore
         /// <summary>
         /// No command should be executed. This is useful if the target is already ready to go.
         /// </summary>
-        None
+        None,
     };
 
     /// <summary>
@@ -148,6 +148,8 @@ namespace MICore
     /// </summary>
     public sealed class LocalLaunchOptions : LaunchOptions
     {
+        private string _coreDumpPath;
+
         private const int DefaultLaunchTimeout = 10 * 1000; // 10 seconds
 
         public LocalLaunchOptions(string MIDebuggerPath, string MIDebuggerServerAddress, int processId, Xml.LaunchOptions.EnvironmentEntry[] environmentEntries)
@@ -184,8 +186,21 @@ namespace MICore
                 {
                     FilterStdout = true;    // no pattern source specified, use stdout
                 }
-                ServerLaunchTimeout = source.ServerLaunchTimeoutSpecified ? source.ServerLaunchTimeout : DefaultLaunchTimeout; 
+                ServerLaunchTimeout = source.ServerLaunchTimeoutSpecified ? source.ServerLaunchTimeout : DefaultLaunchTimeout;
             }
+        }
+
+        /// <summary>
+        /// Checks that the path is valid, exists, and is rooted.
+        /// </summary>
+        private static bool CheckPath(string path)
+        {
+            return path.IndexOfAny(Path.GetInvalidPathChars()) < 0 && File.Exists(path) && Path.IsPathRooted(path);
+        }
+
+        public bool IsCoreDump
+        {
+            get { return !String.IsNullOrEmpty(this.CoreDumpPath); }
         }
 
         public bool ShouldStartServer()
@@ -202,6 +217,11 @@ namespace MICore
                 source.Environment);
             options.InitializeCommonOptions(source);
             options.InitializeServerOptions(source);
+            options.CoreDumpPath = source.CoreDumpPath;
+
+            // Ensure that CoreDumpPath and ProcessId are not specified at the same time
+            if (!String.IsNullOrEmpty(source.CoreDumpPath) && source.ProcessId != 0)
+                throw new InvalidLaunchOptionsException(String.Format(CultureInfo.InvariantCulture, MICoreResources.Error_CannotSpecifyBoth, nameof(source.CoreDumpPath), nameof(source.ProcessId)));
 
             return options;
         }
@@ -220,24 +240,6 @@ namespace MICore
         /// [Optional] If supplied, the debugger will attach to the process rather than launching a new one. Note that some operating systems will require admin rights to do this.
         /// </summary>
         public int ProcessId { get; private set; }
-
-        /// <summary>
-        /// [Required] Path to the executable file. This path must exist on the Visual Studio computer.
-        /// </summary>
-        public override string ExePath
-        {
-            get
-            {
-                return base.ExePath;
-            }
-            set
-            {
-                if (string.IsNullOrWhiteSpace(value) || value.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || !File.Exists(value) || !Path.IsPathRooted(value))
-                    throw new ArgumentException(string.Format(CultureInfo.CurrentCulture, MICoreResources.Error_InvalidLocalExePath, value));
-
-                base.ExePath = value;
-            }
-        }
 
         /// <summary>
         /// [Optional] List of environment variables to add to the launched process
@@ -273,6 +275,25 @@ namespace MICore
         /// [Optional] Log strings written to stderr and examine for server started pattern
         /// </summary>
         public int ServerLaunchTimeout { get; private set; }
+
+        /// <summary>
+        /// [Optional] Path to a core dump file for the specified executable.
+        /// </summary>
+        public string CoreDumpPath
+        {
+            get
+            {
+                return _coreDumpPath;
+            }
+            private set
+            {
+                // CoreDumpPath is allowed to be null/empty
+                if (!String.IsNullOrEmpty(value) && !LocalLaunchOptions.CheckPath(value))
+                    throw new ArgumentException(String.Format(CultureInfo.CurrentCulture, MICoreResources.Error_InvalidLocalExePath, value));
+
+                _coreDumpPath = value;
+            }
+        }
     }
 
     public sealed class SourceRoot
@@ -405,6 +426,20 @@ namespace MICore
             }
         }
 
+        private bool _waitDynamicLibLoad = true;
+        /// <summary>
+        /// If true, wait for dynamic library load to finish.
+        /// </summary>
+        public bool WaitDynamicLibLoad
+        {
+            get { return _waitDynamicLibLoad; }
+            set
+            {
+                VerifyCanModifyProperty("WaitDynamicLibLoad");
+                _waitDynamicLibLoad = value;
+            }
+        }
+
         /// <summary>
         /// If true, instead of showing Natvis-DisplayString value as a child of a dummy element, it is shown immediately.
         /// Should only be enabled if debugger is fast enough providing the value.
@@ -489,7 +524,7 @@ namespace MICore
             }
         }
 
-        public static LaunchOptions GetInstance(HostConfigurationStore configStore, string exePath, string args, string dir, string options, IDeviceAppLauncherEventCallback eventCallback, TargetEngine targetEngine)
+        public static LaunchOptions GetInstance(HostConfigurationStore configStore, string exePath, string args, string dir, string options, IDeviceAppLauncherEventCallback eventCallback, TargetEngine targetEngine, Logger logger)
         {
             if (string.IsNullOrWhiteSpace(exePath))
                 throw new ArgumentNullException("exePath");
@@ -497,7 +532,7 @@ namespace MICore
             if (string.IsNullOrWhiteSpace(options))
                 throw new InvalidLaunchOptionsException(MICoreResources.Error_StringIsNullOrEmpty);
 
-            Logger.WriteTextBlock("LaunchOptions", options);
+            logger?.WriteTextBlock("LaunchOptions", options);
 
             LaunchOptions launchOptions = null;
             Guid clsidLauncher = Guid.Empty;
@@ -568,7 +603,7 @@ namespace MICore
 
             if (clsidLauncher != Guid.Empty)
             {
-                launchOptions = ExecuteLauncher(configStore, clsidLauncher, exePath, args, dir, launcherXmlOptions, eventCallback, targetEngine);
+                launchOptions = ExecuteLauncher(configStore, clsidLauncher, exePath, args, dir, launcherXmlOptions, eventCallback, targetEngine, logger);
             }
 
             if (targetEngine == TargetEngine.Native)
@@ -745,6 +780,7 @@ namespace MICore
                 this.VisualizerFile = source.VisualizerFile;
 
             this.ShowDisplayString = source.ShowDisplayString;
+            this.WaitDynamicLibLoad = source.WaitDynamicLibLoad;
 
             this.SetupCommands = LaunchCommand.CreateCollectionFromXml(source.SetupCommands);
 
@@ -786,7 +822,7 @@ namespace MICore
             return attributeValue;
         }
 
-        private static LaunchOptions ExecuteLauncher(HostConfigurationStore configStore, Guid clsidLauncher, string exePath, string args, string dir, object launcherXmlOptions, IDeviceAppLauncherEventCallback eventCallback, TargetEngine targetEngine)
+        private static LaunchOptions ExecuteLauncher(HostConfigurationStore configStore, Guid clsidLauncher, string exePath, string args, string dir, object launcherXmlOptions, IDeviceAppLauncherEventCallback eventCallback, TargetEngine targetEngine, Logger logger)
         {
             var deviceAppLauncher = (IPlatformAppLauncher)HostLoader.VsCoCreateManagedObject(configStore, clsidLauncher);
             if (deviceAppLauncher == null)
@@ -803,7 +839,7 @@ namespace MICore
                     deviceAppLauncher.Initialize(configStore, eventCallback);
                     deviceAppLauncher.SetLaunchOptions(exePath, args, dir, launcherXmlOptions, targetEngine);
                 }
-                catch (Exception e) when (!(e is InvalidLaunchOptionsException))
+                catch (Exception e) when (!(e is InvalidLaunchOptionsException) && ExceptionHelper.BeforeCatch(e, logger, reportOnlyCorrupting: true))
                 {
                     throw new InvalidLaunchOptionsException(e.Message);
                 }

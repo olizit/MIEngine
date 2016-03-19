@@ -71,6 +71,15 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Both &apos;{0}&apos; and &apos;{1}&apos; cannot be specified at the same time..
+        /// </summary>
+        public static string Error_CannotSpecifyBoth {
+            get {
+                return ResourceManager.GetString("Error_CannotSpecifyBoth", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Internal error in MIEngine. Exception of type &apos;{0}&apos; was thrown.
         ///
         ///{1}.
@@ -158,11 +167,29 @@ namespace MICore {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Invalid path to core dump file &apos;{0}&apos;. File must be a valid file name that exists on the computer..
+        /// </summary>
+        public static string Error_InvalidLocalCoreDumpPath {
+            get {
+                return ResourceManager.GetString("Error_InvalidLocalCoreDumpPath", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Invalid path to executable file path &apos;{0}&apos;. File must be a valid file name that exists on the Visual Studio computer..
         /// </summary>
         public static string Error_InvalidLocalExePath {
             get {
                 return ResourceManager.GetString("Error_InvalidLocalExePath", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to The value of miDebuggerPath is invalid.
+        /// </summary>
+        public static string Error_InvalidMiDebuggerPath {
+            get {
+                return ResourceManager.GetString("Error_InvalidMiDebuggerPath", resourceCulture);
             }
         }
         

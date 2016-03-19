@@ -26,7 +26,7 @@ namespace AndroidDebugLauncher
         /// <param name="token">token to check for cancelation</param>
         /// <param name="launchOptions">[Required] launch options object</param>
         /// <returns>[Required] Created InstallPaths object</returns>
-        public static InstallPaths Resolve(CancellationToken token, AndroidLaunchOptions launchOptions)
+        public static InstallPaths Resolve(CancellationToken token, AndroidLaunchOptions launchOptions, MICore.Logger logger)
         {
             var result = new InstallPaths();
 
@@ -36,13 +36,13 @@ namespace AndroidDebugLauncher
             }
             else
             {
-                result.SDKRoot = GetDirectoryFromRegistry(@"SOFTWARE\Android SDK Tools", "Path", checkBothBitnesses: true, externalProductName: LauncherResources.ProductName_NDK);
+                result.SDKRoot = GetDirectoryFromRegistry(@"SOFTWARE\Android SDK Tools", "Path", checkBothBitnesses: true, externalProductName: LauncherResources.ProductName_SDK);
             }
 
             string ndkRoot = launchOptions.NDKRoot;
             if (ndkRoot == null)
             {
-                ndkRoot = GetDirectoryFromRegistry(RegistryRoot.Value + @"\Setup\VS\SecondaryInstaller\AndroidNDK", "NDK_HOME", checkBothBitnesses: false, externalProductName: LauncherResources.ProductName_SDK);
+                ndkRoot = GetDirectoryFromRegistry(RegistryRoot.Value + @"\Setup\VS\SecondaryInstaller\AndroidNDK", "NDK_HOME", checkBothBitnesses: false, externalProductName: LauncherResources.ProductName_NDK);
             }
 
             string ndkReleaseVersionFile = Path.Combine(ndkRoot, "RELEASE.TXT");
@@ -53,7 +53,7 @@ namespace AndroidDebugLauncher
 
             NdkReleaseId ndkReleaseId;
             NdkReleaseId.TryParseFile(ndkReleaseVersionFile, out ndkReleaseId);
-            MICore.Logger.WriteLine("Using NDK '{0}' from path '{1}'", ndkReleaseId, ndkRoot);
+            logger.WriteLine("Using NDK '{0}' from path '{1}'", ndkReleaseId, ndkRoot);
 
             string targetArchitectureName;
             NDKToolChainFilePath[] possibleGDBPaths;
